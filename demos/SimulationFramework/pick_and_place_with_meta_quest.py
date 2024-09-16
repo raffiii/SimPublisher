@@ -7,7 +7,7 @@ from alr_sim.controllers.IKControllers import CartPosQuatImpedenceController
 from alr_sim.sims.mj_beta import MjRobot
 
 from simpub.sim.sf_publisher import SFPublisher
-from simpub.xr_device.meta_quest3 import MetaQuest3
+from simpub.xr_device import MetaQuest3
 
 
 class MetaQuest3Controller(CartPosQuatImpedenceController):
@@ -98,7 +98,7 @@ if __name__ == "__main__":
     publisher = SFPublisher(
         scene, args.host, no_tracked_objects=["table_plane", "table0"]
     )
-    meta_quest3 = MetaQuest3("ALRMetaQuest3")
+    meta_quest3 = MetaQuest3("UnityClient")
     robot_controller = MetaQuest3Controller(meta_quest3)
     robot_controller.executeController(robot, maxDuration=1000, block=False)
 

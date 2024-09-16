@@ -70,13 +70,16 @@ class Publisher(Communicator):
 
     def publish(self, data: Dict):
         msg = f"{self.topic}:{dumps(data)}"
-        self.socket.send_string(msg)
+        self.manager.submit_task(self.send_msg_async, msg)
 
     def publish_string(self, string: str):
-        self.socket.send_string(f"{self.topic}:{string}")
+        self.manager.submit_task(self.send_msg_async, f"{self.topic}:{string}")
 
     def on_shutdown(self):
         super().on_shutdown()
+
+    async def send_msg_async(self, msg: str):
+        await self.socket.send_string(msg)
 
 
 class Streamer(Publisher):
@@ -104,7 +107,7 @@ class Streamer(Publisher):
                 "updateData": self.update_func(),
                 "time": last,
             }
-            self.socket.send_string(f"{self.topic}:{dumps(msg)}")
+            await self.socket.send_string(f"{self.topic}:{dumps(msg)}")
 
 
 ResponseType = Union[str, bytes, Dict]
@@ -165,7 +168,7 @@ class NetManager:
         host_name: str = "SimPub"
     ) -> None:
         NetManager.manager = self
-        self._initialized = True
+        self._initialized = False
         self.zmq_context = zmq.asyncio.Context()
         # subscriber
         self.sub_socket_dict: Dict[IPAddress, zmq.Socket] = {}
@@ -203,9 +206,22 @@ class NetManager:
         while self.loop is None:
             time.sleep(0.01)
 
+    def start(self):
+        self._initialized = True
+
     def start_event_loop(self):
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
+        # wait for the start signal
+        while not self._initialized:
+            time.sleep(0.01)
+        # default service for client registration
+        self.register_service = Service(
+            "Register", self.register_client_callback, str
+        )
+        self.server_timestamp_service = Service(
+            "GetServerTimestamp", self.get_server_timestamp_callback, str
+        )
         # default task for client registration
         self.submit_task(self.broadcast_loop)
         self.submit_task(self.service_loop)
@@ -225,19 +241,12 @@ class NetManager:
     async def service_loop(self):
         # try:
         logger.info("The service is running...")
-        # default service for client registration
-        self.register_service = Service(
-            "Register", self.register_client_callback, str
-        )
-        self.server_timestamp_service = Service(
-            "GetServerTimestamp", self.get_server_timestamp_callback, str
-        )
         while self.running:
             message = await self.service_socket.recv_string()
             if ":" not in message:
-                logger.error(f"Invalid message with no spliter \":\"")
+                logger.error("Invalid message with no spliter \":\"")
                 await self.service_socket.send_string("Invalid message")
-                continue        
+                continue
             service, request = message.split(":", 1)
             # the zmq service socket is blocked and only run one at a time
             if service in self.service_list.keys():
@@ -268,6 +277,7 @@ class NetManager:
         broadcast_bin = ip_bin | ~netmask_bin & 0xFFFFFFFF
         broadcast_ip = socket.inet_ntoa(struct.pack('!I', broadcast_bin))
         while self.running:
+            local_info = self.local_info  # update local info
             msg = f"SimPub:{_id}:{json.dumps(local_info)}"
             _socket.sendto(
                 msg.encode(), (broadcast_ip, ServerPort.DISCOVERY.value)
@@ -303,7 +313,7 @@ class NetManager:
         logger.info("Server has been shut down")
 
 
-def init_net_manager(host: str):
+def init_net_manager(host: str) -> NetManager:
     if NetManager.manager is not None:
         return NetManager.manager
     return NetManager(host)
