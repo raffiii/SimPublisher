@@ -251,15 +251,8 @@ class NetManager:
             # the zmq service socket is blocked and only run one at a time
             if service in self.service_list.keys():
                 try:
-                    self.service_list[service].callback_func(request)
-                
-                # try:
-                    # await self.service_list[service].callback(request)
-                # except asyncio.TimeoutError:
-                #     logger.error(
-                #         "Timeout: callback function took too long to execute"
-                #     )
-                #     await self.service_socket.send_string("Timeout")
+                    result = self.service_list[service].callback_func(request)
+                    await self.service_list[service].sender(result)
                 except Exception as e:
                     logger.error(f"Error: {e}")
             await asycnc_sleep(0.01)
